@@ -14,6 +14,8 @@ const Footer = () => {
               <img
                 src={LOGO_URL}
                 alt="Golden Touch Cleaning Services"
+                loading="lazy"
+                decoding="async"
                 className="h-20 w-auto object-contain brightness-110"
               />
             </div>
