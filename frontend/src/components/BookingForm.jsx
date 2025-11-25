@@ -410,8 +410,8 @@ const BookingForm = () => {
                 </p>
                 <p className="text-xs text-gray-500 text-center mt-1" data-testid="no-email-help-link">
                   Didn't get any confirmation email?{' '}
-                  <a href="/customer-portal" className="text-blue-600 hover:underline">
-                    View your booking in the Customer Portal
+                  <a href="/admin/login" className="text-blue-600 hover:underline">
+                    Go to the Admin Portal
                   </a>
                 </p>
               </form>
