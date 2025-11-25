@@ -1,0 +1,141 @@
+* {
+    scroll-behavior: smooth;
+}
+
+.App {
+    min-height: 100vh;
+}
+
+/* Hide Emergent watermark */
+#emergent-badge,
+a[href*="emergent.sh"] {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+/* Professional transitions for interactive elements */
+button, a, input, select, textarea {
+    transition-property: all;
+    transition-duration: 300ms;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+button:hover, a:hover {
+    transform: translateY(-1px);
+}
+
+button:active, a:active {
+    transform: translateY(0);
+}
+
+/* Custom professional scrollbar */
+::-webkit-scrollbar {
+    width: 12px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f8fafc;
+    border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+    border-radius: 6px;
+    border: 2px solid #f8fafc;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, #1d4ed8 0%, #1e40af 100%);
+}
+
+/* Professional card hover effects */
+.card-hover {
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-hover:hover {
+    transform: translateY(-8px);
+    box-shadow: 0 20px 40px rgba(37, 99, 235, 0.15);
+}
+
+/* Professional gradient text */
+.gradient-text {
+    background: linear-gradient(135deg, #2563eb 0%, #0ea5e9 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Fade in animation */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.fade-in-up {
+    animation: fadeInUp 0.8s ease-out;
+}
+
+/* Professional shadow */
+.professional-shadow {
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.professional-shadow:hover {
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+/* Calendar Styles */
+.rbc-calendar {
+    font-family: inherit;
+}
+
+.rbc-header {
+    padding: 10px 3px;
+    font-weight: 600;
+    font-size: 14px;
+    border-bottom: 2px solid #2563eb;
+    background: #f8fafc;
+}
+
+.rbc-today {
+    background-color: #eff6ff;
+}
+
+.rbc-event {
+    padding: 2px 5px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.rbc-event:hover {
+    opacity: 1 !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.rbc-toolbar button {
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: 1px solid #e5e7eb;
+    background: white;
+    transition: all 0.2s;
+}
+
+.rbc-toolbar button:hover {
+    background: #f3f4f6;
+    border-color: #2563eb;
+}
+
+.rbc-toolbar button.rbc-active {
+    background: #2563eb;
+    color: white;
+    border-color: #2563eb;
+}
