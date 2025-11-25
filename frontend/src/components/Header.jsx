@@ -24,6 +24,8 @@ const Header = () => {
             <img
               src={LOGO_URL}
               alt="Golden Touch Cleaning Services"
+              loading="lazy"
+              decoding="async"
               className="h-16 w-auto object-contain"
             />
             <div>
