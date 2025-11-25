@@ -408,6 +408,12 @@ const BookingForm = () => {
                     (647) 787-5942
                   </a>
                 </p>
+                <p className="text-xs text-gray-500 text-center mt-1" data-testid="no-email-help-link">
+                  Didn't get any confirmation email?{' '}
+                  <a href="/customer-portal" className="text-blue-600 hover:underline">
+                    View your booking in the Customer Portal
+                  </a>
+                </p>
               </form>
             </CardContent>
           </Card>
