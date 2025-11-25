@@ -16,8 +16,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from security import (
     rate_limit_middleware, validate_booking_input, add_security_headers,
-    record_login_attempt, hash_password, create_session, validate_session,
-    invalidate_session, sanitize_input, check_ip_blocked
+    record_login_attempt, hash_password, verify_password, create_session, validate_session,
+    invalidate_session, sanitize_input, check_ip_blocked, set_sessions_db
 )
 
 # Configure logging
@@ -35,6 +35,9 @@ load_dotenv(ROOT_DIR / '.env', override=False)
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
+
+# Initialize sessions database for security module
+set_sessions_db(db)
 
 # Create the main app without a prefix
 app = FastAPI()
@@ -145,6 +148,7 @@ async def admin_login(login_data: AdminLogin, request: Request):
     
     # Check if IP is blocked
     if check_ip_blocked(client_ip):
+        logger.warning(f"Blocked IP {client_ip} attempted admin login")
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many failed login attempts. Please try again later."
@@ -152,24 +156,9 @@ async def admin_login(login_data: AdminLogin, request: Request):
     
     # Get admin password from environment
     admin_password = os.environ.get('ADMIN_PASSWORD', 'Amasarpong2006')
-    admin_password_hash = hash_password(admin_password)
     
-    # Verify password
-    if hash_password(login_data.password) == admin_password_hash:
-        # Record successful login
-        record_login_attempt(client_ip, True)
-        
-        # Create session
-        session_token = create_session('admin')
-        
-        logger.info(f"Successful admin login from {client_ip}")
-        
-        return {
-            "success": True,
-            "token": session_token,
-            "message": "Login successful"
-        }
-    else:
+    # Verify password using bcrypt
+    if not verify_password(login_data.password, hash_password(admin_password)):
         # Record failed login
         allowed = record_login_attempt(client_ip, False)
         
@@ -185,19 +174,33 @@ async def admin_login(login_data: AdminLogin, request: Request):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid password"
         )
+    
+    # Record successful login
+    record_login_attempt(client_ip, True)
+    
+    # Create session
+    session_token = await create_session('admin')
+    
+    logger.info(f"Successful admin login from {client_ip}")
+    
+    return {
+        "success": True,
+        "token": session_token,
+        "message": "Login successful"
+    }
 
 # Admin logout endpoint
 @api_router.post("/admin/logout")
 async def admin_logout(token: str):
     """Logout admin user"""
-    invalidate_session(token)
+    await invalidate_session(token)
     return {"success": True, "message": "Logged out successfully"}
 
 # Session validation endpoint
 @api_router.post("/admin/validate-session")
 async def validate_admin_session(token: str):
     """Validate admin session token"""
-    is_valid = validate_session(token)
+    is_valid = await validate_session(token)
     return {"valid": is_valid}
 
 # Promo code validation endpoint
@@ -224,12 +227,15 @@ async def validate_promo_code(promo_data: dict):
 async def create_booking(booking_data: BookingCreate, request: Request):
     """Create a new booking with security validation"""
     try:
+        client_ip = request.client.host
+        logger.info(f"New booking request from {client_ip}: {booking_data.name} - {booking_data.service}")
+        
         # Validate input
         booking_dict = booking_data.model_dump()
         is_valid, message = validate_booking_input(booking_dict)
         
         if not is_valid:
-            logger.warning(f"Invalid booking input from {request.client.host}: {message}")
+            logger.warning(f"Invalid booking input from {client_ip}: {message}")
             raise HTTPException(status_code=400, detail=message)
         
         # Get service name from service ID
@@ -243,9 +249,9 @@ async def create_booking(booking_data: BookingCreate, request: Request):
             if promo_upper in PROMO_CODES:
                 discount = PROMO_CODES[promo_upper]
                 promo_code = promo_upper
-                logger.info(f"Valid promo code applied: {promo_code} - {discount}% discount")
+                logger.info(f"Valid promo code applied: {promo_code} - {discount}% discount for {booking_data.name}")
             else:
-                logger.warning(f"Invalid promo code attempted from {request.client.host}: {booking_data.promoCode}")
+                logger.warning(f"Invalid promo code attempted from {client_ip}: {booking_data.promoCode}")
         
         # Create booking object
         booking_dict = booking_data.model_dump()
@@ -264,26 +270,35 @@ async def create_booking(booking_data: BookingCreate, request: Request):
         result = await db.bookings.insert_one(booking_dict)
         
         if not result.inserted_id:
+            logger.error(f"Failed to insert booking for {booking.bookingId}")
             raise HTTPException(status_code=500, detail="Failed to create booking")
+        
+        logger.info(f"Booking created successfully: {booking.bookingId} (Customer: {booking.customerId})")
         
         # Send emails (non-blocking)
         try:
             await email_service.send_customer_confirmation(booking_dict)
             await email_service.send_business_notification(booking_dict)
+            logger.info(f"Confirmation emails sent for booking {booking.bookingId}")
         except Exception as e:
             logger.error(f"Failed to send emails for booking {booking.bookingId}: {str(e)}")
         
         return booking
         
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Error creating booking: {str(e)}")
+        logger.error(f"Error creating booking: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to create booking")
 
 @api_router.get("/bookings", response_model=List[Booking])
-async def get_bookings():
-    """Get all bookings"""
+async def get_bookings(skip: int = 0, limit: int = 50):
+    """Get all bookings with pagination"""
+    if skip < 0 or limit < 1 or limit > 100:
+        raise HTTPException(status_code=400, detail="Invalid pagination parameters")
+    
     try:
-        bookings = await db.bookings.find({}, {"_id": 0}).to_list(1000)
+        bookings = await db.bookings.find({}, {"_id": 0}).skip(skip).limit(limit).to_list(limit)
         
         # Convert ISO string timestamps back to datetime objects
         for booking in bookings:
@@ -321,14 +336,40 @@ async def get_booking(booking_id: str):
 
 @api_router.put("/bookings/{booking_id}/status", response_model=Booking)
 async def update_booking_status(booking_id: str, status_update: dict):
-    result = await db.bookings.find_one_and_update(
-        {"bookingId": booking_id},
-        {"$set": {"status": status_update["status"], "updatedAt": datetime.utcnow()}},
-        return_document=True
-    )
-    if not result:
-        raise HTTPException(status_code=404, detail="Booking not found")
-    return Booking(**result)
+    """Update booking status"""
+    # Validate status value
+    valid_statuses = ['pending', 'confirmed', 'completed', 'cancelled']
+    status_value = status_update.get('status', '').lower().strip()
+    
+    if not status_value or status_value not in valid_statuses:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
+        )
+    
+    try:
+        result = await db.bookings.find_one_and_update(
+            {"bookingId": booking_id},
+            {"$set": {"status": status_value, "updatedAt": datetime.utcnow().isoformat()}},
+            return_document=True
+        )
+        if not result:
+            raise HTTPException(status_code=404, detail="Booking not found")
+        
+        logger.info(f"Booking {booking_id} status updated to {status_value}")
+        
+        # Convert ISO string timestamps back to datetime objects
+        if isinstance(result.get('createdAt'), str):
+            result['createdAt'] = datetime.fromisoformat(result['createdAt'])
+        if isinstance(result.get('updatedAt'), str):
+            result['updatedAt'] = datetime.fromisoformat(result['updatedAt'])
+        
+        return Booking(**result)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating booking {booking_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to update booking")
 
 # New endpoint for sending custom messages
 class MessageRequest(BaseModel):
@@ -440,8 +481,8 @@ app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
-    allow_methods=["*"],
+    allow_origins=os.environ.get('CORS_ORIGINS', 'http://localhost:3000').split(','),
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
 

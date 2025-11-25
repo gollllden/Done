@@ -17,9 +17,9 @@ class EmailService:
     def __init__(self):
         self.smtp_host = os.getenv('SMTP_HOST', 'smtp.gmail.com')
         self.smtp_port = int(os.getenv('SMTP_PORT', 587))
-        self.smtp_user = os.getenv('SMTP_USER', '')
-        self.smtp_pass = os.getenv('SMTP_PASS', '')
-        self.business_email = os.getenv('BUSINESS_EMAIL', 'amasarpong206@gmail.com')
+        self.smtp_user = os.getenv('SMTP_USER')
+        self.smtp_pass = os.getenv('SMTP_PASS')
+        self.business_email = os.getenv('BUSINESS_EMAIL')
         self.enabled = bool(self.smtp_user and self.smtp_pass)
 
         if self.enabled:
@@ -53,7 +53,7 @@ class EmailService:
 
             logger.info(f'Email sent successfully to {to_email}')
             return True
-        except Exception as e:
+        except (OSError, aiosmtplib.SMTPException) as e:
             logger.error(f'Failed to send email to {to_email}: {str(e)}')
             return False
 
@@ -224,6 +224,10 @@ class EmailService:
 
     async def send_business_notification(self, booking: dict):
         """Send new booking notification to business"""
+        if not self.business_email:
+            logger.info('Business email not configured, skipping business notification')
+            return
+        
         subject = f"🔔 New Booking: {booking['serviceName']} - {booking['date']}"
         html_content = f"""
         <html>
@@ -289,12 +293,12 @@ class EmailService:
                             <td style="padding: 12px 0; color: #333333; font-size: 14px; text-align: right; border-bottom: 1px solid #e0e0e0;">{booking.get('email', 'Not provided')}</td>
                         </tr>
                         <tr>
-                            <td style="padding: 12px 0; color: #666666; font-size: 14px; {'' if booking.get('vehicleType') or booking.get('notes') else ''}">Address</td>
-                            <td style="padding: 12px 0; color: #333333; font-size: 14px; text-align: right; {'' if booking.get('vehicleType') or booking.get('notes') else ''}">{booking['address']}</td>
+                            <td style="padding: 12px 0; color: #666666; font-size: 14px; border-bottom: 1px solid #e0e0e0;">Address</td>
+                            <td style="padding: 12px 0; color: #333333; font-size: 14px; text-align: right; border-bottom: 1px solid #e0e0e0;">{booking['address']}</td>
                         </tr>
                         {f'''<tr>
-                            <td style="padding: 12px 0; color: #666666; font-size: 14px; {'border-bottom: 1px solid #e0e0e0;' if booking.get('notes') else ''}">Vehicle Type</td>
-                            <td style="padding: 12px 0; color: #333333; font-size: 14px; text-align: right; {'border-bottom: 1px solid #e0e0e0;' if booking.get('notes') else ''}">{booking['vehicleType']}</td>
+                            <td style="padding: 12px 0; color: #666666; font-size: 14px; border-bottom: 1px solid #e0e0e0;">Vehicle Type</td>
+                            <td style="padding: 12px 0; color: #333333; font-size: 14px; text-align: right; border-bottom: 1px solid #e0e0e0;">{booking['vehicleType']}</td>
                         </tr>''' if booking.get('vehicleType') else ''}
                         {f'''<tr>
                             <td style="padding: 12px 0; color: #666666; font-size: 14px; vertical-align: top;">Notes</td>

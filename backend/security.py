@@ -3,7 +3,6 @@ Security middleware and utilities for the application
 """
 import os
 import time
-import hashlib
 import secrets
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -11,8 +10,12 @@ from fastapi import HTTPException, Request, status
 from fastapi.responses import JSONResponse
 import logging
 import re
+from passlib.context import CryptContext
 
 logger = logging.getLogger(__name__)
+
+# Password hashing context using bcrypt
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Rate limiting storage
 rate_limit_storage = defaultdict(list)
@@ -28,13 +31,13 @@ RATE_LIMIT_WINDOW = 60  # 1 minute
 
 
 def hash_password(password: str) -> str:
-    """Hash password using SHA-256"""
-    return hashlib.sha256(password.encode()).hexdigest()
+    """Hash password using bcrypt"""
+    return pwd_context.hash(password)
 
 
 def verify_password(password: str, hashed: str) -> bool:
-    """Verify password against hash"""
-    return hash_password(password) == hashed
+    """Verify password against bcrypt hash"""
+    return pwd_context.verify(password, hashed)
 
 
 def generate_session_token() -> str:
@@ -209,55 +212,88 @@ def add_security_headers(response):
     return response
 
 
-# Session management
-active_sessions = {}
+# Session management - will be initialized with MongoDB client
+# This will be set by server.py after db connection is established
+db_sessions = None
 SESSION_TIMEOUT = 3600  # 1 hour
 
 
-def create_session(user_id: str) -> str:
-    """Create a new session"""
+def set_sessions_db(database):
+    """Set the database connection for session storage"""
+    global db_sessions
+    db_sessions = database
+
+
+async def create_session(user_id: str) -> str:
+    """Create a new session in MongoDB"""
+    if db_sessions is None:
+        raise RuntimeError("Database not initialized for sessions")
+    
     token = generate_session_token()
-    active_sessions[token] = {
+    session_doc = {
+        'token': token,
         'user_id': user_id,
-        'created_at': datetime.now(),
-        'last_activity': datetime.now()
+        'created_at': datetime.utcnow(),
+        'last_activity': datetime.utcnow(),
+        'expires_at': datetime.utcnow() + timedelta(seconds=SESSION_TIMEOUT)
     }
+    
+    await db_sessions.sessions.insert_one(session_doc)
+    logger.info(f"Session created for user {user_id}")
     return token
 
 
-def validate_session(token: str) -> bool:
-    """Validate session token"""
-    if token not in active_sessions:
+async def validate_session(token: str) -> bool:
+    """Validate session token from MongoDB"""
+    if db_sessions is None:
+        logger.error("Database not initialized for sessions")
         return False
     
-    session = active_sessions[token]
-    
-    # Check if session expired
-    if (datetime.now() - session['last_activity']).seconds > SESSION_TIMEOUT:
-        del active_sessions[token]
+    try:
+        session = await db_sessions.sessions.find_one({'token': token})
+        
+        if not session:
+            return False
+        
+        # Check if session expired
+        if datetime.utcnow() > session['expires_at']:
+            await db_sessions.sessions.delete_one({'token': token})
+            return False
+        
+        # Update last activity
+        await db_sessions.sessions.update_one(
+            {'token': token},
+            {'$set': {'last_activity': datetime.utcnow()}}
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Error validating session: {str(e)}")
         return False
+
+
+async def invalidate_session(token: str):
+    """Invalidate session (logout) - remove from MongoDB"""
+    if db_sessions is None:
+        return
     
-    # Update last activity
-    session['last_activity'] = datetime.now()
-    return True
+    try:
+        result = await db_sessions.sessions.delete_one({'token': token})
+        if result.deleted_count > 0:
+            logger.info(f"Session invalidated: {token}")
+    except Exception as e:
+        logger.error(f"Error invalidating session: {str(e)}")
 
 
-def invalidate_session(token: str):
-    """Invalidate session (logout)"""
-    if token in active_sessions:
-        del active_sessions[token]
-
-
-def clean_expired_sessions():
-    """Clean expired sessions"""
-    current_time = datetime.now()
-    expired = [
-        token for token, session in active_sessions.items()
-        if (current_time - session['last_activity']).seconds > SESSION_TIMEOUT
-    ]
+async def clean_expired_sessions():
+    """Clean expired sessions from MongoDB"""
+    if db_sessions is None:
+        return
     
-    for token in expired:
-        del active_sessions[token]
-    
-    if expired:
-        logger.info(f"Cleaned {len(expired)} expired sessions")
+    try:
+        result = await db_sessions.sessions.delete_many(
+            {'expires_at': {'$lt': datetime.utcnow()}}
+        )
+        if result.deleted_count > 0:
+            logger.info(f"Cleaned {result.deleted_count} expired sessions")
+    except Exception as e:
+        logger.error(f"Error cleaning expired sessions: {str(e)}")
