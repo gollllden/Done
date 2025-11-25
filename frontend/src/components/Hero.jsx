@@ -18,12 +18,15 @@ const Hero = () => {
       {/* Background Image with Overlay */}
       <div
         className="absolute inset-0 z-0"
-        style={{
-          backgroundImage: `url(${HERO_IMAGE_URL})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-        }}
       >
+        {/* Use an actual img tag for better lazy-loading and decoding control */}
+        <img
+          src={HERO_IMAGE_URL}
+          alt="Golden Touch Cleaning hero background"
+          loading="lazy"
+          decoding="async"
+          className="w-full h-full object-cover"
+        />
         <div className="absolute inset-0 bg-gradient-to-br from-slate-900/95 via-slate-800/90 to-blue-900/85" />
       </div>
 
